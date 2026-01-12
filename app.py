@@ -222,5 +222,48 @@ def scrape_summary():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/scrape/batch', methods=['POST'])
+def scrape_batch():
+    """
+    Batch scraping - accepts multiple URLs
+    POST with JSON: {"urls": ["example1.com", "example2.com"], "max_pages": 10}
+    """
+    data = request.get_json() or {}
+    urls = data.get('urls', [])
+
+    if not urls:
+        return jsonify({'error': 'Missing urls array'}), 400
+
+    if len(urls) > 20:
+        return jsonify({'error': 'Max 20 URLs per batch'}), 400
+
+    try:
+        max_pages = min(int(data.get('max_pages', 10)), 20)
+    except:
+        max_pages = 10
+
+    results = []
+    for url in urls:
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+        try:
+            scraper = SiteScraper(url, max_pages=max_pages, timeout_seconds=15)
+            result = scraper.crawl()
+            results.append({
+                'url': url,
+                'success': True,
+                'data': {
+                    'domain': result['domain'],
+                    'pages_count': result['pages_count'],
+                    'main_content': result['pages'][0]['content'][:2000] if result['pages'] else '',
+                    'titles': [p['title'] for p in result['pages'][:5]]
+                }
+            })
+        except Exception as e:
+            results.append({'url': url, 'success': False, 'error': str(e)})
+
+    return jsonify({'results': results, 'count': len(results)})
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
