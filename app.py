@@ -173,17 +173,109 @@ def scrape():
         scraper = SiteScraper(url, max_pages=max_pages, timeout_seconds=25)
         result = scraper.crawl()
 
-        # Build full_content - all pages combined in one string
-        full_parts = []
-        for page in result['pages']:
-            page_text = f"=== {page['title']} ({page['url']}) ===\n{page['content']}"
-            full_parts.append(page_text)
-
-        result['full_content'] = "\n\n---\n\n".join(full_parts)
+        # Build AI-optimized full_content
+        result['full_content'] = build_ai_content(result)
 
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+def build_ai_content(data):
+    """Build AI-optimized structured content from scraped data"""
+    pages = data.get('pages', [])
+    domain = data.get('domain', '')
+
+    if not pages:
+        return ""
+
+    # Extract key elements
+    homepage = pages[0] if pages else {}
+    h1_all = []
+    h2_all = []
+    h3_all = []
+    page_titles = []
+
+    for p in pages:
+        h = p.get('headers', {})
+        h1_all.extend(h.get('h1', []))
+        h2_all.extend(h.get('h2', []))
+        h3_all.extend(h.get('h3', []))
+        if p.get('title'):
+            page_titles.append(p['title'])
+
+    # Deduplicate
+    h1_unique = list(dict.fromkeys(h1_all))[:10]
+    h2_unique = list(dict.fromkeys(h2_all))[:15]
+    h3_unique = list(dict.fromkeys(h3_all))[:10]
+
+    # Build structured content
+    sections = []
+
+    # INTRO
+    sections.append(f"""# WEBSITE INTELLIGENCE REPORT: {domain.upper()}
+> This document contains scraped content from {domain} for GTM (Go-To-Market) analysis.
+> Use this data to understand: company positioning, messaging, value propositions, target audience, and product offerings.
+> Total pages analyzed: {len(pages)}
+""")
+
+    # CORE MESSAGING (H1)
+    if h1_unique:
+        sections.append("## CORE MESSAGING (H1 Headlines)")
+        sections.append("These are the main headlines - they reveal primary positioning and messaging:")
+        for h in h1_unique:
+            sections.append(f"- {h}")
+        sections.append("")
+
+    # VALUE PROPOSITIONS (H2)
+    if h2_unique:
+        sections.append("## VALUE PROPOSITIONS (H2 Subheadlines)")
+        sections.append("Secondary headlines that explain benefits and features:")
+        for h in h2_unique:
+            sections.append(f"- {h}")
+        sections.append("")
+
+    # KEY TOPICS (H3)
+    if h3_unique:
+        sections.append("## KEY TOPICS (H3)")
+        for h in h3_unique:
+            sections.append(f"- {h}")
+        sections.append("")
+
+    # HOMEPAGE
+    sections.append("## HOMEPAGE CONTENT")
+    sections.append(f"URL: {homepage.get('url', '')}")
+    sections.append(f"Title: {homepage.get('title', '')}")
+    sections.append(f"Meta Description: {homepage.get('meta_description', '')}")
+    sections.append("")
+    sections.append("### Homepage Full Text:")
+    sections.append(homepage.get('content', '')[:4000])
+    sections.append("")
+
+    # OTHER PAGES
+    sections.append("## OTHER PAGES CONTENT")
+    sections.append("Below is content from other key pages on the website:")
+    sections.append("")
+
+    for page in pages[1:]:
+        url_path = page['url'].replace(f"https://{domain}", "").replace(f"http://{domain}", "") or "/"
+        sections.append(f"### PAGE: {url_path}")
+        sections.append(f"Title: {page.get('title', '')}")
+        if page.get('meta_description'):
+            sections.append(f"Description: {page['meta_description']}")
+        sections.append("")
+        sections.append(page.get('content', '')[:3000])
+        sections.append("")
+        sections.append("---")
+        sections.append("")
+
+    # SITE STRUCTURE
+    sections.append("## SITE STRUCTURE")
+    sections.append("All pages found on this website:")
+    for title in page_titles[:30]:
+        sections.append(f"- {title}")
+
+    return "\n".join(sections)
 
 
 @app.route('/scrape/summary')
