@@ -173,97 +173,58 @@ def scrape():
         scraper = SiteScraper(url, max_pages=max_pages, timeout_seconds=20)
         result = scraper.crawl()
 
-        # Build AI-optimized full_content
+        # Build AI-optimized full_content (max 7KB)
         result['full_content'] = build_ai_content(result)
+
+        # Truncate page content to reduce total size (max ~150KB total)
+        for page in result.get('pages', []):
+            if 'content' in page:
+                page['content'] = page['content'][:2000]
 
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
-def build_ai_content(data, max_size=140000):
-    """Build AI-optimized structured content from scraped data - max ~140KB"""
+def build_ai_content(data, max_size=7000):
+    """Build AI-optimized content - max 7KB for Clay cell limit"""
     pages = data.get('pages', [])
     domain = data.get('domain', '')
 
     if not pages:
         return ""
 
-    # Extract key elements
     homepage = pages[0] if pages else {}
-    h1_all = []
-    h2_all = []
-    page_titles = []
+    h1_all, h2_all = [], []
 
-    for p in pages:
+    for p in pages[:10]:
         h = p.get('headers', {})
         h1_all.extend(h.get('h1', []))
         h2_all.extend(h.get('h2', []))
-        if p.get('title'):
-            page_titles.append(p['title'])
 
-    # Deduplicate
-    h1_unique = list(dict.fromkeys(h1_all))[:8]
-    h2_unique = list(dict.fromkeys(h2_all))[:12]
+    h1 = list(dict.fromkeys(h1_all))[:5]
+    h2 = list(dict.fromkeys(h2_all))[:8]
 
-    # Build structured content
-    sections = []
+    parts = [f"# {domain.upper()} | {len(pages)} pages\n"]
 
-    # INTRO (compact)
-    sections.append(f"""# GTM INTELLIGENCE: {domain.upper()}
-> Scraped content for Go-To-Market analysis. Pages: {len(pages)}
-""")
+    if h1:
+        parts.append("## MESSAGING\n" + "\n".join(f"- {x[:80]}" for x in h1) + "\n")
+    if h2:
+        parts.append("## VALUE PROPS\n" + "\n".join(f"- {x[:80]}" for x in h2) + "\n")
 
-    # CORE MESSAGING (H1)
-    if h1_unique:
-        sections.append("## MESSAGING (H1)")
-        for h in h1_unique:
-            sections.append(f"- {h[:100]}")
-        sections.append("")
+    # Homepage excerpt
+    parts.append(f"## HOMEPAGE\n{homepage.get('content', '')[:1500]}\n")
 
-    # VALUE PROPOSITIONS (H2)
-    if h2_unique:
-        sections.append("## VALUE PROPS (H2)")
-        for h in h2_unique:
-            sections.append(f"- {h[:100]}")
-        sections.append("")
+    # Key pages - very short
+    remaining = max_size - len("".join(parts)) - 200
+    per_page = max(200, remaining // min(len(pages) - 1, 5)) if len(pages) > 1 else 0
 
-    # HOMEPAGE - more compact
-    sections.append("## HOMEPAGE")
-    sections.append(f"Title: {homepage.get('title', '')}")
-    meta = homepage.get('meta_description', '')
-    if meta:
-        sections.append(f"Meta: {meta[:200]}")
-    sections.append("")
-    sections.append(homepage.get('content', '')[:2500])
-    sections.append("")
+    for p in pages[1:6]:
+        path = p['url'].replace(f"https://{domain}", "").replace(f"http://{domain}", "") or "/"
+        parts.append(f"## {path}\n{p.get('content', '')[:per_page]}\n")
 
-    current_size = len("\n".join(sections))
-    remaining = max_size - current_size - 1000  # Reserve for structure
-
-    # OTHER PAGES - adaptive content length
-    sections.append("## PAGES")
-    pages_to_include = min(len(pages) - 1, 15)  # Max 15 other pages
-    content_per_page = max(500, remaining // max(pages_to_include, 1))
-
-    for page in pages[1:pages_to_include + 1]:
-        url_path = page['url'].replace(f"https://{domain}", "").replace(f"http://{domain}", "") or "/"
-        sections.append(f"\n### {url_path}")
-        sections.append(f"{page.get('title', '')}")
-        content = page.get('content', '')[:content_per_page]
-        sections.append(content)
-
-    # SITE MAP (compact)
-    sections.append("\n## SITEMAP")
-    sections.append(", ".join(page_titles[:20]))
-
-    result = "\n".join(sections)
-
-    # Final size check
-    if len(result) > max_size:
-        result = result[:max_size] + "\n\n[TRUNCATED]"
-
-    return result
+    result = "".join(parts)
+    return result[:max_size] if len(result) > max_size else result
 
 
 @app.route('/scrape/summary')
