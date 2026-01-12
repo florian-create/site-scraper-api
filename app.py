@@ -172,6 +172,15 @@ def scrape():
     try:
         scraper = SiteScraper(url, max_pages=max_pages, timeout_seconds=25)
         result = scraper.crawl()
+
+        # Build full_content - all pages combined in one string
+        full_parts = []
+        for page in result['pages']:
+            page_text = f"=== {page['title']} ({page['url']}) ===\n{page['content']}"
+            full_parts.append(page_text)
+
+        result['full_content'] = "\n\n---\n\n".join(full_parts)
+
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
